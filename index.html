@@ -109,6 +109,9 @@
   .signature{margin-top:8px!important;font-weight:700;color:var(--navy)}
   .etapes{margin:18px 0 0;padding-left:20px;color:var(--muted);font-size:.92rem}
   .etapes li{margin:4px 0}
+  .statut-envoi{margin:14px 0 0;padding:12px 14px;border-radius:10px;background:#f3f4f9;color:var(--navy);font-weight:600;text-align:center}
+  .statut-envoi.ok{background:#eef8f1;color:var(--ok)}
+  .statut-envoi.echec{background:#fff4e5;color:#8a5300}
   footer{text-align:center;color:var(--muted);font-size:.8rem;margin-top:16px}
 
   @media (max-width:560px){
@@ -286,7 +289,7 @@
         </fieldset>
 
         <p class="msg-erreur" id="erreur">Veuillez remplir les champs obligatoires (<span style="color:var(--error)">*</span>) et ajouter votre photo d'identité.</p>
-        <button type="submit" class="btn btn-principal">Valider et envoyer ma fiche sur WhatsApp</button>
+        <button type="submit" class="btn btn-principal">Valider et envoyer ma fiche</button>
       </form>
     </section>
 
@@ -297,6 +300,8 @@
         <p class="signature">ChoristeLemvoka</p>
       </div>
 
+      <p class="statut-envoi" id="statutEnvoi">⏳ Envoi automatique de votre fiche PDF sur le WhatsApp de la chorale…</p>
+      <div id="envoiManuel" style="display:none">
       <button type="button" class="btn btn-whatsapp" id="btnEnvoyer">
         <span aria-hidden="true">💬</span> Ouvrir WhatsApp de la chorale (+242 06 812 29 78)
       </button>
@@ -306,6 +311,7 @@
         <li>Appuyez sur 📎 → <b>Document</b> → choisissez votre fiche (en haut de la liste) → <b>Envoyer</b>.</li>
         <li>Si WhatsApp ne s'est pas ouvert, appuyez sur le bouton vert ci-dessus.</li>
       </ol>
+      </div>
       <button type="button" class="btn btn-secondaire" id="btnNouvelle">Remplir une nouvelle fiche</button>
     </section>
   </div>
@@ -600,16 +606,56 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
 
-  let dejaTelecharge = false;
-  async function envoyerFiche(automatique){
+  // 1) Envoi automatique : le PDF part tout seul vers le robot WhatsApp de la chorale
+  //    (adresse du relais lue dans relais.json, mise à jour au démarrage du PC robot).
+  async function adresseRelais(){
+    const rep = await fetch("relais.json?" + Date.now(), {cache: "no-store"});
+    if (!rep.ok) throw new Error("relais.json absent");
+    const {url} = await rep.json();
+    if (!url) throw new Error("adresse du relais vide");
+    return url.replace(/\/$/, "");
+  }
+
+  async function envoyerAuRobot(pdf){
+    const controle = new AbortController();
+    const minuterie = setTimeout(() => controle.abort(), 90000);
     try {
-      const pdf = await fichierPret;
-      if (!dejaTelecharge) { telecharger(pdf); dejaTelecharge = true; }
-      // Laisse le temps au téléphone d'enregistrer le PDF avant d'ouvrir WhatsApp
-      setTimeout(ouvrirWhatsapp, automatique ? 1500 : 300);
-    } catch (err) {
-      alert("Impossible de préparer la fiche : " + (err && err.message ? err.message : err));
+      const rep = await fetch((await adresseRelais()) + "/fiche", {
+        method: "POST", body: pdf, signal: controle.signal,
+        headers: {"Content-Type": "application/pdf", "X-Nom": encodeURIComponent(donnees.nom)}
+      });
+      const res = await rep.json().catch(() => ({}));
+      return rep.ok && res.ok === true;
+    } finally { clearTimeout(minuterie); }
+  }
+
+  // 2) Secours : si le robot ne répond pas, PDF enregistré + WhatsApp ouvert sur la chorale
+  let dejaTelecharge = false;
+  function envoiManuel(pdf, automatique){
+    document.getElementById("envoiManuel").style.display = "block";
+    if (!dejaTelecharge) { telecharger(pdf); dejaTelecharge = true; }
+    setTimeout(ouvrirWhatsapp, automatique ? 1500 : 300);
+  }
+
+  async function envoyerFiche(automatique){
+    const statut = document.getElementById("statutEnvoi");
+    let pdf;
+    try { pdf = await fichierPret; }
+    catch (err) { alert("Impossible de préparer la fiche : " + (err && err.message ? err.message : err)); return; }
+    if (automatique) {
+      statut.className = "statut-envoi";
+      statut.textContent = "⏳ Envoi automatique de votre fiche PDF sur le WhatsApp de la chorale…";
+      let ok = false;
+      try { ok = await envoyerAuRobot(pdf); } catch (e) { ok = false; }
+      if (ok) {
+        statut.className = "statut-envoi ok";
+        statut.textContent = "✅ Votre fiche PDF a été envoyée automatiquement sur le WhatsApp de la chorale (+242 06 812 29 78). Vous n'avez rien d'autre à faire.";
+        return;
+      }
+      statut.className = "statut-envoi echec";
+      statut.textContent = "⚠️ L'envoi automatique n'a pas abouti. Envoyez votre fiche vous-même : WhatsApp va s'ouvrir sur la chorale.";
     }
+    envoiManuel(pdf, automatique);
   }
 
   document.getElementById("btnEnvoyer").addEventListener("click", () => envoyerFiche(false));
@@ -619,7 +665,7 @@
     majBapteme();
     apercu.removeAttribute("src"); cadrePhoto.classList.remove("rempli", "invalide");
     form.querySelectorAll(".invalide").forEach(el => el.classList.remove("invalide"));
-    [erreur, erreurTel, document.getElementById("erreurEmail")].forEach(m => m.style.display = "none");
+    [erreur, erreurTel, document.getElementById("erreurEmail"), document.getElementById("envoiManuel")].forEach(m => m.style.display = "none");
     document.getElementById("confirmation").style.display = "none";
     document.getElementById("formulaire").style.display = "block";
     window.scrollTo({top:0});
