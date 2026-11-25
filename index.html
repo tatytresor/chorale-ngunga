@@ -106,6 +106,8 @@
   .felicitations{background:#eef8f1;border:1.5px solid #9fd6b0;border-radius:12px;padding:18px;text-align:center}
   .felicitations h2{margin:0 0 8px;color:var(--ok);font-size:1.25rem}
   .felicitations p{margin:0}
+  .felicitations.doublon{background:#fff7e6;border-color:#f0c36d}
+  .felicitations.doublon h2{color:#9a6200}
   .signature{margin-top:8px!important;font-weight:700;color:var(--navy)}
   .etapes{margin:18px 0 0;padding-left:20px;color:var(--muted);font-size:.92rem}
   .etapes li{margin:4px 0}
@@ -294,9 +296,15 @@
     </section>
 
     <section id="confirmation" aria-live="polite">
-      <div class="felicitations">
+      <div class="felicitations" id="felicitations" style="display:none">
         <h2>Félicitations !</h2>
         <p>Vous êtes enregistré(e) dans la base de données de la Chorale Ngunga.</p>
+        <p class="signature">ChoristeLemvoka</p>
+      </div>
+      <div class="felicitations doublon" id="doublon" style="display:none">
+        <h2>Fiche déjà enregistrée</h2>
+        <p>Bonjour, vous avez déjà été enregistré(e) avec ce même nom et prénom et cette même date de naissance.</p>
+        <p>Votre fiche n'a pas été envoyée une deuxième fois.</p>
         <p class="signature">ChoristeLemvoka</p>
       </div>
 
@@ -640,6 +648,7 @@
         headers: {"Content-Type": "text/plain;charset=utf-8"}
       });
       const r = await rep.json();
+      if (r.doublon) return "doublon";
       if (!r.ok) throw new Error(r.erreur || "refusé");
       return true;
     } finally { clearTimeout(minuterie); }
@@ -662,6 +671,12 @@
       statut.textContent = "⏳ Envoi de votre fiche à la Chorale Ngunga…";
       let ok = false;
       try { ok = await envoyerParEmail(pdf); } catch (e) { ok = false; }
+      if (ok === "doublon") {
+        document.getElementById("doublon").style.display = "block";
+        statut.style.display = "none";
+        return;
+      }
+      document.getElementById("felicitations").style.display = "block";
       if (ok) {
         statut.className = "statut-envoi ok";
         statut.textContent = "✅ Merci d'avoir envoyé votre fiche de renseignements.";
@@ -670,6 +685,7 @@
       statut.className = "statut-envoi echec";
       statut.textContent = "⚠️ L'envoi n'a pas abouti (connexion ?). Envoyez votre fiche vous-même : WhatsApp va s'ouvrir sur la chorale.";
     }
+    document.getElementById("felicitations").style.display = "block";
     envoiManuel(pdf, automatique);
   }
 
@@ -680,7 +696,9 @@
     majBapteme();
     apercu.removeAttribute("src"); cadrePhoto.classList.remove("rempli", "invalide");
     form.querySelectorAll(".invalide").forEach(el => el.classList.remove("invalide"));
-    [erreur, erreurTel, document.getElementById("erreurEmail"), document.getElementById("envoiManuel")].forEach(m => m.style.display = "none");
+    [erreur, erreurTel, document.getElementById("erreurEmail"), document.getElementById("envoiManuel"),
+     document.getElementById("felicitations"), document.getElementById("doublon")].forEach(m => m.style.display = "none");
+    document.getElementById("statutEnvoi").style.display = "";
     document.getElementById("confirmation").style.display = "none";
     document.getElementById("formulaire").style.display = "block";
     window.scrollTo({top:0});
