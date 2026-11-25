@@ -613,12 +613,21 @@
     if (!rep.ok) throw new Error("relais.json absent");
     const {url} = await rep.json();
     if (!url) throw new Error("adresse du relais vide");
-    return url.replace(/\/$/, "");
+    const base = url.replace(/\/$/, "");
+    // Vérification éclair : si le robot ne répond pas en 8 s, inutile d'attendre
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 8000);
+    try {
+      const ping = await fetch(base + "/", {signal: c.signal, cache: "no-store"});
+      if (!ping.ok) throw new Error("relais indisponible");
+    } finally { clearTimeout(t); }
+    return base;
   }
 
   async function envoyerAuRobot(pdf){
     const controle = new AbortController();
-    const minuterie = setTimeout(() => controle.abort(), 90000);
+    // 45 s maximum : au-delà, on passe à l'envoi manuel pour ne pas faire attendre le choriste
+    const minuterie = setTimeout(() => controle.abort(), 45000);
     try {
       const rep = await fetch((await adresseRelais()) + "/fiche", {
         method: "POST", body: pdf, signal: controle.signal,
