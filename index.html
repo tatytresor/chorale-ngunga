@@ -139,7 +139,7 @@
 
     <section id="formulaire">
       <h1>Fiche de renseignement</h1>
-      <p class="intro">Remplissez la fiche puis envoyez-la sur WhatsApp. Les champs marqués <span style="color:var(--error)">*</span> sont obligatoires.</p>
+      <p class="intro">Remplissez la fiche puis appuyez sur « Envoyer ». Les champs marqués <span style="color:var(--error)">*</span> sont obligatoires.</p>
 
       <form id="fiche" novalidate onsubmit="return false">
         <div class="photo-zone">
@@ -171,8 +171,8 @@
             </div>
             <p class="msg-erreur plein" id="erreurTel" style="margin-top:-6px">Numéro incorrect : saisissez les 9 chiffres après +242 (ex. : 06 812 29 78).</p>
             <div class="plein">
-              <label for="email">E-mail <span class="facultatif">(facultatif)</span></label>
-              <input type="email" id="email" name="email" autocomplete="email" inputmode="email" placeholder="exemple@gmail.com">
+              <label for="email">E-mail <span class="req">*</span> <span class="facultatif">(pour recevoir l'accusé de réception)</span></label>
+              <input type="email" id="email" name="email" autocomplete="email" inputmode="email" placeholder="exemple@gmail.com" required>
               <p class="msg-erreur" id="erreurEmail" style="margin-top:6px">Adresse e-mail incorrecte.</p>
             </div>
             <div class="plein">
@@ -436,7 +436,11 @@
     });
     erreurTel.style.display = telIncorrect ? "block" : "none";
     const email = document.getElementById("email");
-    const emailIncorrect = email.value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.value.trim());
+    const emailVide = !email.value.trim();
+    const emailIncorrect = emailVide || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.value.trim());
+    document.getElementById("erreurEmail").textContent = emailVide
+      ? "L'e-mail est obligatoire : vous y recevrez l'accusé de réception."
+      : "Adresse e-mail incorrecte.";
     email.classList.toggle("invalide", !!emailIncorrect);
     document.getElementById("erreurEmail").style.display = emailIncorrect ? "block" : "none";
     if (emailIncorrect) ok = false;
