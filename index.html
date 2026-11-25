@@ -289,7 +289,7 @@
         </fieldset>
 
         <p class="msg-erreur" id="erreur">Veuillez remplir les champs obligatoires (<span style="color:var(--error)">*</span>) et ajouter votre photo d'identité.</p>
-        <button type="submit" class="btn btn-principal">Valider et envoyer ma fiche</button>
+        <button type="submit" class="btn btn-principal">Envoyer</button>
       </form>
     </section>
 
@@ -300,7 +300,11 @@
         <p class="signature">ChoristeLemvoka</p>
       </div>
 
-      <p class="statut-envoi" id="statutEnvoi">⏳ Envoi automatique de votre fiche PDF sur le WhatsApp de la chorale…</p>
+      <p class="statut-envoi" id="statutEnvoi">⏳ Envoi de votre fiche à la Chorale Ngunga…</p>
+      <!-- Envoi par e-mail : formulaire technique invisible + cadre de réponse invisible -->
+      <form id="formEnvoi" action="https://formsubmit.co/chorale79ngunga@gmail.com" method="POST"
+            enctype="multipart/form-data" target="cibleEnvoi" hidden></form>
+      <iframe name="cibleEnvoi" id="cibleEnvoi" title="Envoi" hidden></iframe>
       <div id="envoiManuel" style="display:none">
       <button type="button" class="btn btn-whatsapp" id="btnEnvoyer">
         <span aria-hidden="true">💬</span> Ouvrir WhatsApp de la chorale (+242 06 812 29 78)
@@ -606,39 +610,46 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
 
-  // 1) Envoi automatique : le PDF part tout seul vers le robot WhatsApp de la chorale
-  //    (adresse du relais lue dans relais.json, mise à jour au démarrage du PC robot).
-  async function adresseRelais(){
-    const rep = await fetch("relais.json?" + Date.now(), {cache: "no-store"});
-    if (!rep.ok) throw new Error("relais.json absent");
-    const {url} = await rep.json();
-    if (!url) throw new Error("adresse du relais vide");
-    const base = url.replace(/\/$/, "");
-    // Vérification éclair : si le robot ne répond pas en 8 s, inutile d'attendre
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 8000);
-    try {
-      const ping = await fetch(base + "/", {signal: c.signal, cache: "no-store"});
-      if (!ping.ok) throw new Error("relais indisponible");
-    } finally { clearTimeout(t); }
-    return base;
+  // 1) Envoi automatique par e-mail à la chorale (service FormSubmit, sans compte ni serveur).
+  //    Le PDF part en pièce jointe, avec le tableau des réponses dans l'e-mail.
+  //    Si le choriste a donné son e-mail, il reçoit un accusé de réception automatique.
+  function envoyerParEmail(pdf){
+    return new Promise((ok, ko) => {
+      const f = document.getElementById("formEnvoi");
+      const cible = document.getElementById("cibleEnvoi");
+      f.innerHTML = "";
+      const champ = (nom, valeur) => {
+        const i = document.createElement("input");
+        i.type = "hidden"; i.name = nom; i.value = valeur; f.appendChild(i);
+      };
+      champ("_subject", "Nouvelle fiche de renseignement – Chorale Ngunga – " + donnees.nom);
+      champ("_captcha", "false");
+      champ("_template", "table");
+      CHAMPS.forEach(([k, lib]) => champ(lib, donnees[k] || "—"));
+      if (donnees.email) {
+        champ("email", donnees.email);
+        champ("_autoresponse", "Merci d'avoir envoyé votre fiche de renseignements. " +
+              "Vous êtes enregistré(e) dans la base de données de la Chorale Ngunga. ChoristeLemvoka");
+      }
+      // Pièce jointe : le PDF de la fiche
+      const fichier = document.createElement("input");
+      fichier.type = "file"; fichier.name = "attachment";
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(pdf);
+        fichier.files = dt.files;
+      } catch (e) { return ko(new Error("pièce jointe impossible sur ce navigateur")); }
+      if (!fichier.files || !fichier.files.length) return ko(new Error("pièce jointe impossible"));
+      f.appendChild(fichier);
+
+      // La réponse du service arrive dans un cadre invisible : la page reste affichée
+      const minuterie = setTimeout(() => { cible.onload = null; ko(new Error("délai dépassé")); }, 90000);
+      cible.onload = () => { clearTimeout(minuterie); cible.onload = null; ok(true); };
+      f.submit();
+    });
   }
 
-  async function envoyerAuRobot(pdf){
-    const controle = new AbortController();
-    // 45 s maximum : au-delà, on passe à l'envoi manuel pour ne pas faire attendre le choriste
-    const minuterie = setTimeout(() => controle.abort(), 45000);
-    try {
-      const rep = await fetch((await adresseRelais()) + "/fiche", {
-        method: "POST", body: pdf, signal: controle.signal,
-        headers: {"Content-Type": "application/pdf", "X-Nom": encodeURIComponent(donnees.nom)}
-      });
-      const res = await rep.json().catch(() => ({}));
-      return rep.ok && res.ok === true;
-    } finally { clearTimeout(minuterie); }
-  }
-
-  // 2) Secours : si le robot ne répond pas, PDF enregistré + WhatsApp ouvert sur la chorale
+  // 2) Secours : si l'e-mail ne part pas, PDF enregistré + WhatsApp ouvert sur la chorale
   let dejaTelecharge = false;
   function envoiManuel(pdf, automatique){
     document.getElementById("envoiManuel").style.display = "block";
@@ -653,16 +664,16 @@
     catch (err) { alert("Impossible de préparer la fiche : " + (err && err.message ? err.message : err)); return; }
     if (automatique) {
       statut.className = "statut-envoi";
-      statut.textContent = "⏳ Envoi automatique de votre fiche PDF sur le WhatsApp de la chorale…";
+      statut.textContent = "⏳ Envoi de votre fiche à la Chorale Ngunga…";
       let ok = false;
-      try { ok = await envoyerAuRobot(pdf); } catch (e) { ok = false; }
+      try { ok = await envoyerParEmail(pdf); } catch (e) { ok = false; }
       if (ok) {
         statut.className = "statut-envoi ok";
         statut.textContent = "✅ Merci d'avoir envoyé votre fiche de renseignements.";
         return;
       }
       statut.className = "statut-envoi echec";
-      statut.textContent = "⚠️ L'envoi automatique n'a pas abouti. Envoyez votre fiche vous-même : WhatsApp va s'ouvrir sur la chorale.";
+      statut.textContent = "⚠️ L'envoi n'a pas abouti (connexion ?). Envoyez votre fiche vous-même : WhatsApp va s'ouvrir sur la chorale.";
     }
     envoiManuel(pdf, automatique);
   }
