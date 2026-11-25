@@ -301,10 +301,6 @@
       </div>
 
       <p class="statut-envoi" id="statutEnvoi">⏳ Envoi de votre fiche à la Chorale Ngunga…</p>
-      <!-- Envoi par e-mail : formulaire technique invisible + cadre de réponse invisible -->
-      <form id="formEnvoi" action="https://formsubmit.co/chorale79ngunga@gmail.com" method="POST"
-            enctype="multipart/form-data" target="cibleEnvoi" hidden></form>
-      <iframe name="cibleEnvoi" id="cibleEnvoi" title="Envoi" hidden></iframe>
       <div id="envoiManuel" style="display:none">
       <button type="button" class="btn btn-whatsapp" id="btnEnvoyer">
         <span aria-hidden="true">💬</span> Ouvrir WhatsApp de la chorale (+242 06 812 29 78)
@@ -610,45 +606,40 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
 
-  // 1) Envoi automatique par e-mail à la chorale (service FormSubmit, sans compte ni serveur).
-  //    Le PDF part en pièce jointe, avec le tableau des réponses dans l'e-mail.
-  //    Si le choriste a donné son e-mail, il reçoit un accusé de réception automatique.
-  function envoyerParEmail(pdf){
-    return new Promise((ok, ko) => {
-      const f = document.getElementById("formEnvoi");
-      const cible = document.getElementById("cibleEnvoi");
-      f.innerHTML = "";
-      const champ = (nom, valeur) => {
-        const i = document.createElement("input");
-        i.type = "hidden"; i.name = nom; i.value = valeur; f.appendChild(i);
-      };
-      champ("_subject", "Nouvelle fiche de renseignement – Chorale Ngunga – " + donnees.nom);
-      champ("_captcha", "false");
-      champ("_template", "table");
-      CHAMPS.forEach(([k, lib]) => champ(lib, donnees[k] || "—"));
-      if (donnees.email) {
-        champ("email", donnees.email);
-        champ("_autoresponse", "Merci d'avoir envoyé votre fiche de renseignements. " +
-              "Vous êtes enregistré(e) dans la base de données de la Chorale Ngunga. ChoristeLemvoka");
-      }
-      // Pièce jointe : le PDF de la fiche
-      const fichier = document.createElement("input");
-      fichier.type = "file"; fichier.name = "attachment";
-      try {
-        const dt = new DataTransfer();
-        dt.items.add(pdf);
-        fichier.files = dt.files;
-      } catch (e) { return ko(new Error("pièce jointe impossible sur ce navigateur")); }
-      if (!fichier.files || !fichier.files.length) return ko(new Error("pièce jointe impossible"));
-      f.appendChild(fichier);
+  // 1) Envoi automatique à la chorale par le script Google (compte choralengunga55@gmail.com) :
+  //    e-mail avec le PDF en pièce jointe, copie dans Google Drive, ligne dans le tableau des
+  //    choristes, et accusé de réception si le choriste a donné son e-mail.
+  const ADRESSE_SCRIPT = "https://script.google.com/macros/s/AKfycbyioOti9dj2IuygYcb19JI4MOOBOshNLdfLMWnqmgq_k30MKfqCu4qzKv94mTQt2wdF/exec";
 
-      // La réponse du service arrive dans un cadre invisible : la page reste affichée
-      const minuterie = setTimeout(() => { cible.onload = null; ko(new Error("délai dépassé")); }, 90000);
-      cible.onload = () => { clearTimeout(minuterie); cible.onload = null; ok(true); };
-      f.submit();
+  function enBase64(fichier){
+    return new Promise((ok, ko) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result).split(",")[1]);
+      r.onerror = () => ko(r.error);
+      r.readAsDataURL(fichier);
     });
   }
 
+  async function envoyerParEmail(pdf){
+    const corps = JSON.stringify({
+      nom: donnees.nom,
+      email: donnees.email || "",
+      champs: CHAMPS.map(([k, lib]) => [lib, donnees[k] || "—"]),
+      pdf: await enBase64(pdf)
+    });
+    const arret = new AbortController();
+    const minuterie = setTimeout(() => arret.abort(), 90000);
+    try {
+      // text/plain : pas de requête préalable CORS, accepté par Google Apps Script
+      const rep = await fetch(ADRESSE_SCRIPT, {
+        method: "POST", body: corps, signal: arret.signal, redirect: "follow",
+        headers: {"Content-Type": "text/plain;charset=utf-8"}
+      });
+      const r = await rep.json();
+      if (!r.ok) throw new Error(r.erreur || "refusé");
+      return true;
+    } finally { clearTimeout(minuterie); }
+  }
   // 2) Secours : si l'e-mail ne part pas, PDF enregistré + WhatsApp ouvert sur la chorale
   let dejaTelecharge = false;
   function envoiManuel(pdf, automatique){
